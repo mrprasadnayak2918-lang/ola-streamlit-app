@@ -1,7 +1,7 @@
 
 import streamlit as st
 import pandas as pd
-import mysql.connector
+
 
 st.set_page_config(
     page_title="Ola Ride Insights",
@@ -9,166 +9,41 @@ st.set_page_config(
     layout="wide"
 )
 
-def get_connection():
-    return mysql.connector.connect(
-        host=st.secrets["mysql"]["host"],
-        user=st.secrets["mysql"]["user"],
-        password=st.secrets["mysql"]["password"],
-        database=st.secrets["mysql"]["database"]
-    )
-
-def fetch_data(query):
-    conn = get_connection()
-    df = pd.read_sql(query, conn)
-    conn.close()
+@st.cache_data
+def load_data():
+    df = pd.read_csv("OLA_DataSet_CLEANED.csv")
+    df["Booking_Datetime"] = pd.to_datetime(df["Booking_Datetime"], errors="coerce")
     return df
+
+df = load_data()
 
 st.title("🚗 Ola Ride Insights – Overview")
-st.markdown("Business snapshot of ride operations")
 
-kpi = fetch_data("""
-SELECT
-    COUNT(*) AS total_rides,
-    SUM(CASE WHEN booking_status LIKE '%Success%' THEN 1 ELSE 0 END) AS completed,
-    SUM(CASE WHEN booking_status LIKE '%Customer%' OR booking_status LIKE '%Driver%' THEN 1 ELSE 0 END) AS cancelled,
-    SUM(CASE WHEN booking_status LIKE '%Success%' THEN booking_value ELSE 0 END) AS revenue,
-    ROUND(AVG(customer_rating),2) AS avg_rating
-FROM ola_dataset_cleaned
-""")
+col1, col2, col3, col4, col5 = st.columns(5)
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("🚗 Total Rides", int(kpi.total_rides[0]))
-c2.metric("✅ Completed", int(kpi.completed[0]))
-c3.metric("❌ Cancelled", int(kpi.cancelled[0]))
-c4.metric("💰 Revenue", f"₹ {round(kpi.revenue[0],2)}")
-c5.metric("⭐ Avg Rating", kpi.avg_rating[0])
+col1.metric("🚗 Total Rides", len(df))
+col2.metric("✅ Completed Rides", df["Booking_Status"].str.contains("Success", na=False).sum())
+col3.metric("❌ Cancelled Rides", df["Booking_Status"].str.contains("Customer|Driver", na=False).sum())
+col4.metric(
+    "💰 Revenue",
+    f"₹ {df.loc[df['Booking_Status'].str.contains('Success', na=False), 'Booking_Value'].sum():,.2f}"
+)
+col5.metric("⭐ Avg Rating", round(df["Customer_Rating"].mean(), 2))
 
-import streamlit as st
-import pandas as pd
-import mysql.connector
+st.markdown("---")
 
-st.set_page_config(layout="wide")
+st.subheader("📈 Ride Trends")
+trend = df.groupby(df["Booking_Datetime"].dt.date).size()
+st.line_chart(trend)
 
-def get_connection():
-    return mysql.connector.connect(
-        host=st.secrets["mysql"]["host"],
-        user=st.secrets["mysql"]["user"],
-        password=st.secrets["mysql"]["password"],
-        database=st.secrets["mysql"]["database"]
-    )
+st.subheader("💳 Revenue by Payment Method")
+revenue = df[df["Booking_Status"].str.contains("Success", na=False)] \
+            .groupby("Payment_Method")["Booking_Value"].sum()
+st.bar_chart(revenue)
 
-def fetch_data(query):
-    conn = get_connection()
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
+st.subheader("❌ Customer Cancellation Reasons")
+cancel = df[df["Booking_Status"].str.contains("Customer", na=False)] \
+            ["Cancellation_Reason_Customer"].fillna("Unknown").value_counts()
+st.bar_chart(cancel)
 
-st.title("📈 Ride Trends")
-
-df = fetch_data("""
-SELECT DATE(booking_datetime) AS ride_date,
-       COUNT(*) AS total_rides
-FROM ola_dataset_cleaned
-GROUP BY ride_date
-ORDER BY ride_date
-""")
-
-st.line_chart(df.set_index("ride_date"))
-
-import streamlit as st
-import pandas as pd
-import mysql.connector
-
-st.set_page_config(layout="wide")
-
-def get_connection():
-    return mysql.connector.connect(
-        host=st.secrets["mysql"]["host"],
-        user=st.secrets["mysql"]["user"],
-        password=st.secrets["mysql"]["password"],
-        database=st.secrets["mysql"]["database"]
-    )
-
-def fetch_data(query):
-    conn = get_connection()
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
-
-st.title("💰 Revenue Insights")
-
-df = fetch_data("""
-SELECT payment_method,
-       SUM(booking_value) AS revenue
-FROM ola_dataset_cleaned
-WHERE booking_status LIKE '%Success%'
-GROUP BY payment_method
-ORDER BY revenue DESC
-""")
-
-st.bar_chart(df.set_index("payment_method"))
-
-import streamlit as st
-import pandas as pd
-import mysql.connector
-
-st.set_page_config(layout="wide")
-
-def get_connection():
-    return mysql.connector.connect(
-        host=st.secrets["mysql"]["host"],
-        user=st.secrets["mysql"]["user"],
-        password=st.secrets["mysql"]["password"],
-        database=st.secrets["mysql"]["database"]
-    )
-
-def fetch_data(query):
-    conn = get_connection()
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
-
-st.title("❌ Cancellation Analysis")
-
-df = fetch_data("""
-SELECT COALESCE(cancellation_reason_customer,'Unknown') AS reason,
-       COUNT(*) AS total
-FROM ola_dataset_cleaned
-WHERE booking_status LIKE '%Customer%'
-GROUP BY reason
-ORDER BY total DESC
-""")
-
-st.bar_chart(df.set_index("reason"))
-
-import streamlit as st
-import pandas as pd
-import mysql.connector
-
-st.set_page_config(layout="wide")
-
-def get_connection():
-    return mysql.connector.connect(
-        host=st.secrets["mysql"]["host"],
-        user=st.secrets["mysql"]["user"],
-        password=st.secrets["mysql"]["password"],
-        database=st.secrets["mysql"]["database"]
-    )
-
-def fetch_data(query):
-    conn = get_connection()
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
-
-st.title("⭐ Ratings Analysis")
-
-df = fetch_data("""
-SELECT vehicle_type,
-       ROUND(AVG(customer_rating),2) AS avg_rating
-FROM ola_dataset_cleaned
-GROUP BY vehicle_type
-""")
-
-st.bar_chart(df.set_index("vehicle_type"))
 
